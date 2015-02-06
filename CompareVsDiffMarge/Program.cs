@@ -4,8 +4,6 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace CompareVsDiffMarge
 {
@@ -15,10 +13,37 @@ namespace CompareVsDiffMarge
 
         static void Main(string[] args)
         {
-            if (CreateParentProcessStream(args[0]))
+            bool isAdmin;
+            string file;
+
+            ParseArguments(args, out isAdmin, out file);
+
+            if (CreateParentProcessStream(isAdmin, file))
                 return;
 
-            NotifyParentProcess(args[0]);
+            NotifyParentProcess(file);
+        }
+
+        private static void ParseArguments(IList<string> args, out bool isAdmin, out string file)
+        {
+            isAdmin = false;
+            if(args == null)
+            {
+                throw new ArgumentNullException("args");
+            }
+            if(args.Count > 2)
+            {
+                throw new InvalidOperationException("Only 1 or 2 arguments accepted");
+            }
+            if(args.Count == 2)
+            {
+                isAdmin = args.Any(a => a == "/a");
+                file = args.First(a => a != "/a");
+            }
+            else
+            {
+                file = args[0];
+            }
         }
 
         private static bool NotifyParentProcess(string secondFile)
@@ -48,7 +73,7 @@ namespace CompareVsDiffMarge
             return true;
         }
 
-        private static bool CreateParentProcessStream(string firstFile)
+        private static bool CreateParentProcessStream(bool isAdmin, string firstFile)
         {
             try
             {
@@ -61,17 +86,24 @@ namespace CompareVsDiffMarge
                         var secondFile = reader.ReadToEnd();
                         var path =
                             Path.GetFullPath(Path.Combine(Environment.ExpandEnvironmentVariables("%VS120COMNTOOLS%"),
-                                //@"..\IDE\vsdiffmerge.exe"));
+                            //@"..\IDE\vsdiffmerge.exe"));
                                 @"..\IDE\devenv.exe"));
                         var startInfo = new ProcessStartInfo(string.Format("\"{0}\"", path))
                                         {
-                                            UseShellExecute = false,
+                                            UseShellExecute = true,
                                             Arguments =
                                                 //string.Format("\"{0}\" \"{1}\"", firstFile.Trim(), secondFile.Trim())
-                                                string.Format("/diff \"{0}\" \"{1}\"", firstFile.Trim(), secondFile.Trim())
+                                                string.Format("/diff \"{0}\" \"{1}\"", firstFile.Trim(), secondFile.Trim()),
+                                            WorkingDirectory = Environment.CurrentDirectory,
                                         };
-                        var process = Process.Start(startInfo);
-                        process.WaitForExit();
+                        if(isAdmin)
+                        {
+                            startInfo.Verb = "runas";
+                        }
+
+                        Console.WriteLine("Starting diff tool");
+                        Process.Start(startInfo);
+                        //process.WaitForExit();
                     }
                     return true;
                 }
