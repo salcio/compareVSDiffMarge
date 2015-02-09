@@ -4,46 +4,45 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
 using System.Linq;
+using CommandLine;
+using CommandLine.Text;
 
 namespace CompareVsDiffMarge
 {
+    public class Options
+    {
+        [ValueList(typeof(List<string>), MaximumElements = 1)]
+        public IList<string> Values { get; set; }
+        public string File => Values[0];
+        [Option('a', "admin", DefaultValue = false, Required = false)]
+        public bool RunAsAdmin { get; set; }
+        [Option('v', "version", DefaultValue = "12", Required = false)]
+        public string UseVsVersion { get; set; }
+
+        [HelpOption]
+        public string GetUsage()
+        {
+            return HelpText.AutoBuild(this,
+              (HelpText current) => HelpText.DefaultParsingErrorsHandler(this, current));
+        }
+    }
+
     class Program
     {
         private const string PipeName = "CompareVsDiffMargePipe";
 
         static void Main(string[] args)
         {
-            bool isAdmin;
-            string file;
+            var options = new Options();
+            if (!Parser.Default.ParseArguments(args, options))
+            {
+                return;
+            }
 
-            ParseArguments(args, out isAdmin, out file);
-
-            if (CreateParentProcessStream(isAdmin, file))
+            if (CreateParentProcessStream(options))
                 return;
 
-            NotifyParentProcess(file);
-        }
-
-        private static void ParseArguments(IList<string> args, out bool isAdmin, out string file)
-        {
-            isAdmin = false;
-            if(args == null)
-            {
-                throw new ArgumentNullException("args");
-            }
-            if(args.Count > 2)
-            {
-                throw new InvalidOperationException("Only 1 or 2 arguments accepted");
-            }
-            if(args.Count == 2)
-            {
-                isAdmin = args.Any(a => a == "/a");
-                file = args.First(a => a != "/a");
-            }
-            else
-            {
-                file = args[0];
-            }
+            NotifyParentProcess(options.File);
         }
 
         private static bool NotifyParentProcess(string secondFile)
@@ -73,7 +72,7 @@ namespace CompareVsDiffMarge
             return true;
         }
 
-        private static bool CreateParentProcessStream(bool isAdmin, string firstFile)
+        private static bool CreateParentProcessStream(Options options)
         {
             try
             {
@@ -85,18 +84,18 @@ namespace CompareVsDiffMarge
                     {
                         var secondFile = reader.ReadToEnd();
                         var path =
-                            Path.GetFullPath(Path.Combine(Environment.ExpandEnvironmentVariables("%VS120COMNTOOLS%"),
-                            //@"..\IDE\vsdiffmerge.exe"));
+                            Path.GetFullPath(Path.Combine(Environment.ExpandEnvironmentVariables(string.Format("%VS{0}0COMNTOOLS%", options.UseVsVersion)),
+                                //@"..\IDE\vsdiffmerge.exe"));
                                 @"..\IDE\devenv.exe"));
                         var startInfo = new ProcessStartInfo(string.Format("\"{0}\"", path))
-                                        {
-                                            UseShellExecute = true,
-                                            Arguments =
+                        {
+                            UseShellExecute = true,
+                            Arguments =
                                                 //string.Format("\"{0}\" \"{1}\"", firstFile.Trim(), secondFile.Trim())
-                                                string.Format("/diff \"{0}\" \"{1}\"", firstFile.Trim(), secondFile.Trim()),
-                                            WorkingDirectory = Environment.CurrentDirectory,
-                                        };
-                        if(isAdmin)
+                                                string.Format("/diff \"{0}\" \"{1}\"", options.File.Trim(), secondFile.Trim()),
+                            WorkingDirectory = Environment.CurrentDirectory,
+                        };
+                        if (options.RunAsAdmin)
                         {
                             startInfo.Verb = "runas";
                         }
